@@ -1,0 +1,13 @@
+Eval AI Redteam
+Copyright 2026 Aleksandr Meshkov
+
+This product includes software derived from deepteam
+(https://github.com/confident-ai/deepteam), Copyright Confident AI, Inc.,
+licensed under the Apache License, Version 2.0.
+
+The vulnerability catalog, judge prompts, attack technique prompts,
+multi-turn attack prompts and the OWASP / NIST / MITRE risk-category tables
+were ported from deepteam 1.0.6 and modified. Every ported file carries a
+header stating its origin. The orchestration engine, the LLM client layer,
+the judge dispatcher and the test suite were written fresh for this
+project.

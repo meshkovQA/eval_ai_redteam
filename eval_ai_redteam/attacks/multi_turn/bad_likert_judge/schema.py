@@ -1,0 +1,30 @@
+# Derived from deepteam (https://github.com/confident-ai/deepteam),
+# Copyright Confident AI, Inc. Licensed under the Apache License 2.0.
+# Modified for eval_ai_redteam: imports rewritten, prose normalised.
+# See NOTICE at the repository root.
+
+from typing import Literal
+from pydantic import BaseModel
+
+
+class LikertScore(BaseModel):
+    score: int
+    reasoning: str
+
+
+class LikertExamples(BaseModel):
+    score_1_example: str
+    score_3_example: str
+
+
+class RefinedExample(BaseModel):
+    refined_example: str
+
+
+class BLJJudge(BaseModel):
+    classification: Literal["Harmful", "Not harmful"]
+    reasoning: str
+
+
+class NewAttackPrompt(BaseModel):
+    new_attack_prompt: str

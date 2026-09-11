@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "eval-ai-redteam"
+version = "0.1.0"
+description = "Async red-teaming kernel for LLM applications: vulnerability catalog, attack techniques, multi-turn jailbreak algorithms, judges and safety frameworks"
+readme = "README.md"
+authors = [
+    {name = "Aleksandr Meshkov", email = "alekslynx90@gmail.com"}
+]
+license = {text = "Apache License 2.0"}
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Security",
+]
+keywords = ["ai", "llm", "red-teaming", "jailbreak", "security", "evaluation", "owasp"]
+requires-python = ">=3.10"
+
+# The kernel depends on pydantic only. The LLM transport is pluggable:
+# implement ``BaseLLM.complete`` or install the ``evallib`` extra to route
+# through eval-ai-library (LiteLLM, 100+ providers).
+dependencies = [
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+evallib = ["eval-ai-library>=0.7.25"]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+]
+
+[tool.setuptools.packages.find]
+include = ["eval_ai_redteam*"]
+
+[tool.setuptools.package-data]
+eval_ai_redteam = ["py.typed"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
