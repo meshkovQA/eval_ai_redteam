@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eval-ai-redteam"
-version = "0.1.1"
+version = "0.1.2"
 description = "Async red-teaming kernel for LLM applications: vulnerability catalog, attack techniques, multi-turn jailbreak algorithms, judges and safety frameworks"
 readme = "README.md"
 authors = [

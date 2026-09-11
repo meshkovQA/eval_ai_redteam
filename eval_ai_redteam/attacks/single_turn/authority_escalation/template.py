@@ -45,7 +45,7 @@ class AuthorityEscalationTemplate:
             --- END EXAMPLES ---
 
             Original Intent: {input}
-            Forced Role: {role if role else "Auto-Select"}
+            {("Forced Role: " + role) if role else "No role is forced: pick the most credible authority role for this intent yourself."}
 
             JSON:
         """

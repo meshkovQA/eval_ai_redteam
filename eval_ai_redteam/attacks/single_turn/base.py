@@ -135,6 +135,10 @@ class LLMEnhancedAttack(BaseSingleTurnAttack):
             if not isinstance(candidate, str) or not candidate.strip():
                 last_error = "attacker returned an empty rewrite"
                 continue
+            degenerate = describe_degenerate_rewrite(candidate, attack)
+            if degenerate:
+                last_error = degenerate
+                continue
             rationale = _first_text_field(res, exclude=self.input_field)
             if looks_like_refusal(candidate):
                 refused = True
@@ -180,6 +184,36 @@ class LLMEnhancedAttack(BaseSingleTurnAttack):
             error=last_error,
             rationale=rationale,
         )
+
+
+# Tokens a weak attacker echoes back from the template instead of writing
+# an attack. Compared case-insensitively after stripping quotes and
+# punctuation.
+_PLACEHOLDER_REWRITES = frozenset(
+    {"auto-select", "auto select", "autoselect", "none", "n/a", "na", "null",
+     "input", "attack", "prompt", "tbd", "todo", "..."}
+)
+_MIN_REWRITE_CHARS = 10
+
+
+def describe_degenerate_rewrite(candidate: str, attack: str) -> Optional[str]:
+    """Why ``candidate`` is not a usable rewrite of ``attack``, or None.
+
+    Guards the technique loop against three failure shapes seen in real
+    runs: the template's own placeholder echoed back ("AUTO-SELECT"), a
+    rewrite too short to be an attack, and a rewrite identical to the
+    intent (the technique changed nothing, so claiming it was applied
+    would be false).
+    """
+    text = candidate.strip().strip('"\'`').strip()
+    lowered = text.lower().rstrip(".!:")
+    if lowered in _PLACEHOLDER_REWRITES:
+        return f"attacker echoed a template placeholder ({text!r}) instead of an attack"
+    if len(text) < _MIN_REWRITE_CHARS:
+        return f"rewrite too short to be an attack ({len(text)} chars)"
+    if " ".join(text.split()).lower() == " ".join(attack.split()).lower():
+        return "rewrite identical to the original intent"
+    return None
 
 
 def _first_text_field(res: BaseModel, *, exclude: str) -> Optional[str]:

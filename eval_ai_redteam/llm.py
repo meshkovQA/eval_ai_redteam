@@ -97,14 +97,24 @@ class BaseLLM(ABC):
 
         last_error: Optional[BaseException] = None
         last_text = ""
+        modes = self._mode_sequence()
         for attempt in range(self.max_retries):
-            use_native = attempt == 0 and self.supports_structured_output
+            # Modes the endpoint rejects are dropped as we learn about
+            # them, so a rejected json_schema is followed by json_object
+            # in the same call, not by a wasted plain attempt.
+            mode = modes.pop(0) if modes else "plain"
             try:
-                if use_native:
+                if mode == "json_schema":
                     text = await self.complete(
                         msgs,
                         temperature=temperature,
                         response_format=to_response_format(schema),
+                    )
+                elif mode == "json_object":
+                    text = await self.complete(
+                        augment_messages_with_schema(msgs, schema),
+                        temperature=temperature,
+                        response_format={"type": "json_object"},
                     )
                 else:
                     text = await self.complete(
@@ -113,14 +123,16 @@ class BaseLLM(ABC):
                     )
             except Exception as exc:  # provider error, refused response_format, network
                 last_error = exc
-                logger.debug("generate attempt %d failed: %s", attempt + 1, exc)
+                self._note_provider_error(mode, exc)
+                logger.debug("generate attempt %d (%s) failed: %s", attempt + 1, mode, exc)
                 continue
             last_text = text if isinstance(text, str) else str(text)
             parsed = try_parse_schema(last_text, schema)
             if parsed is not None:
                 return parsed
             last_error = GenerationError(
-                f"could not parse {schema.__name__} from model output",
+                f"could not parse {schema.__name__} from model output "
+                f"(mode={mode}): {_preview(last_text)}",
                 raw_text=last_text,
             )
             # A refusal will not become JSON on retry; stop early so the
@@ -132,6 +144,45 @@ class BaseLLM(ABC):
             f"after {self.max_retries} attempt(s): {last_error}",
             raw_text=last_text,
         ) from last_error
+
+
+    # ----- structured-output capability memory ---------------------------
+    #
+    # Providers differ: OpenAI's older chat models (gpt-3.5-turbo) reject
+    # ``json_schema`` with a 400 but accept ``json_object``; some proxies
+    # reject both. Each instance remembers what its endpoint refused so
+    # later calls skip the doomed attempt instead of paying for it every
+    # time. Attempt order is json_schema, then json_object with a steered
+    # prompt, then a plain steered prompt; modes the endpoint refused are
+    # dropped and the remaining budget is spent on the plain path.
+
+    _json_schema_unsupported: bool = False
+    _json_object_unsupported: bool = False
+
+    def _mode_sequence(self) -> list[str]:
+        modes: list[str] = []
+        if self.supports_structured_output and not self._json_schema_unsupported:
+            modes.append("json_schema")
+        if not self._json_object_unsupported:
+            modes.append("json_object")
+        modes.append("plain")
+        return modes
+
+    def _note_provider_error(self, mode: str, exc: BaseException) -> None:
+        text = str(exc).lower()
+        if "response_format" not in text and "json" not in text and "structured" not in text:
+            return  # transient / unrelated failure: keep trying the mode later
+        if mode == "json_schema":
+            self._json_schema_unsupported = True
+            logger.info("%s does not accept json_schema output; falling back", self.get_model_name())
+        elif mode == "json_object":
+            self._json_object_unsupported = True
+            logger.info("%s does not accept json_object output; falling back", self.get_model_name())
+
+
+def _preview(text: str, limit: int = 160) -> str:
+    flat = " ".join((text or "").split())
+    return flat[:limit] + ("..." if len(flat) > limit else "")
 
 
 class CallableLLM(BaseLLM):
@@ -361,12 +412,39 @@ def try_parse_schema(text: str, schema: type[T]) -> Optional[T]:
         payload = safe_json_loads(candidate)
         if payload is None:
             continue
-        try:
-            return validate(payload)
-        except Exception as exc:
-            logger.debug("schema validation failed: %s", exc)
-            continue
+        for shaped in _shape_candidates(payload, schema):
+            try:
+                return validate(shaped)
+            except Exception as exc:
+                logger.debug("schema validation failed: %s", exc)
+                continue
     return None
+
+
+def _shape_candidates(payload: Any, schema: Any):
+    """Yield ``payload`` and the obvious re-shapings of it.
+
+    Models asked for ``{"data": [...]}`` often answer with the bare list;
+    when the schema has exactly one list-typed field, wrap the list under
+    that field. Same for a dict whose only key holds the list under a
+    different name.
+    """
+    yield payload
+    fields = getattr(schema, "model_fields", None)
+    if not isinstance(fields, dict) or len(fields) != 1:
+        return
+    (name, info), = fields.items()
+    annotation = getattr(info, "annotation", None)
+    origin = getattr(annotation, "__origin__", None)
+    is_list = annotation is list or origin is list
+    if not is_list:
+        return
+    if isinstance(payload, list):
+        yield {name: payload}
+    elif isinstance(payload, dict) and len(payload) == 1:
+        (value,) = payload.values()
+        if isinstance(value, list) and name not in payload:
+            yield {name: value}
 
 
 def iter_json_candidates(text: str):
@@ -377,6 +455,36 @@ def iter_json_candidates(text: str):
     if fenced and fenced != stripped:
         yield fenced
     yield from iter_balanced_braces(stripped)
+    yield from iter_balanced_brackets(stripped)
+
+
+def iter_balanced_brackets(text: str):
+    """Yield each balanced top-level ``[...]`` block (bare JSON arrays)."""
+    depth = 0
+    start = -1
+    in_string = False
+    escape = False
+    for i, ch in enumerate(text):
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == "\\":
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+        if ch == '"':
+            in_string = True
+            continue
+        if ch == "[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "]" and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                yield text[start : i + 1]
+                start = -1
 
 
 _FENCE_RE = re.compile(r"```(?:json|jsonc)?\s*\n?(.*?)\n?```", re.DOTALL | re.IGNORECASE)

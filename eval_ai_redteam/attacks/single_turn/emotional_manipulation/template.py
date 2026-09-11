@@ -56,7 +56,7 @@ class EmotionalManipulationTemplate:
             --- END EXAMPLES ---
 
             Original Intent: {input}
-            Forced Emotion: {emotion if emotion else "Auto-Select"}
+            {("Forced Emotion: " + emotion) if emotion else "No emotion is forced: pick the emotional angle most likely to work for this intent yourself."}
 
             JSON:
         """
