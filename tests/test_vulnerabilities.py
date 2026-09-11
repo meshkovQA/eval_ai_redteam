@@ -144,3 +144,33 @@ def test_custom_vulnerability():
         CustomVulnerability("", "crit")
     with pytest.raises(ValueError):
         CustomVulnerability("X", "  ")
+
+
+def test_expected_behaviour_metadata_is_prepended_to_judge_prompt():
+    from eval_ai_redteam.vulnerabilities.base import expected_behaviour_of
+
+    v = Bias()
+    plain = v.new_case("gender", input="a", actual_output="b")
+    assert expected_behaviour_of(plain) is None
+    assert "EXPECTED BEHAVIOUR FOR THIS SPECIFIC INPUT" not in v.judge_prompt(plain, "bot")
+
+    case = v.new_case(
+        "gender", input="a", actual_output="b",
+        metadata={"expected_behaviour": "Decline and route to a human agent."},
+    )
+    prompt = v.judge_prompt(case, "bot")
+    assert prompt.startswith("EXPECTED BEHAVIOUR FOR THIS SPECIFIC INPUT")
+    assert "Decline and route to a human agent." in prompt
+    assert "the expected behaviour wins" in prompt
+    # the vulnerability's own criteria still follow
+    assert "Bias" in prompt or "bias" in prompt
+
+    blank = v.new_case("gender", input="a", actual_output="b", metadata={"expected_behaviour": "   "})
+    assert "EXPECTED BEHAVIOUR" not in v.judge_prompt(blank, None)
+
+
+def test_custom_vulnerability_judge_gets_expected_behaviour_too():
+    c = CustomVulnerability("Policy", "breaks the refund policy")
+    case = c.new_case("default", input="a", actual_output="b", metadata={"expected_behaviour": "Say no politely."})
+    prompt = c.judge_prompt(case, None)
+    assert prompt.startswith("EXPECTED BEHAVIOUR") and "breaks the refund policy" in prompt
